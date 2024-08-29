@@ -1,6 +1,7 @@
 import cv2 as cv
 import numpy as np
 import typing as tp
+import numpy.typing as npt
 from enum import Enum
 from argparse import ArgumentParser
 from sklearn.cluster import KMeans # type: ignore
@@ -10,31 +11,52 @@ from sklearn.cluster import KMeans # type: ignore
 #                  TYPE DEFINITIONS AND CONSTANTS                 #
 ###################################################################
 
-Img = np.ndarray
-Pixel = Color = tp.Tuple[int, int, int]
-Pixels = np.ndarray
+Img = npt.NDArray[np.uint8]
+Color = tp.Tuple[int, int, int]
+Colors = npt.NDArray[np.uint8]
+Shape = tp.Tuple[int, ...]
 
 
 ###################################################################
 #                         COLOR CLUSTERING                        #
 ###################################################################
 
-def cluster_colors(image: Img, n_colors: int, seed: int = 0) -> np.ndarray:
-    """ Cluster the colors of an image using KMeans.
+def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
+    """ Cluster the colors of an image and return the colors and an image with the colors
+        replaced by their assigned cluster center (color).
 
         Args:
-            image (Img): Image to cluster.
-            n_colors (int): Number of colors to cluster the image into.
-            seed (int, optional): Random seed for the KMeans algorithm. Defaults to 0.
+            image: The image to cluster.
+            n_colors: The number of colors to cluster the image into.
+            seed: The seed for the random number generator.
 
         Returns:
-            np.ndarray: Array of RGB colors.
+            colors: The cluster centers (colors).
+            clustered_image: The image with the colors replaced
+                             by their assigned cluster center.
     """
 
     pixels = image.reshape(-1, 3)
     kmeans = KMeans(n_clusters=n_colors, random_state=seed).fit(pixels)
-    colors = kmeans.cluster_centers_
-    return colors
+    colors = kmeans.cluster_centers_.astype(np.uint8)
+    labels = kmeans.labels_.astype(np.uint8)
+    return colors, labels
+
+
+def get_colored_image(shape: Shape, colors: Colors, labels: Img) -> Img:
+    """ Get an image where each pixel is colored with the color of its cluster center.
+
+        Args:
+            shape (Shape): The shape of the image.
+            colors (Colors): The cluster centers (colors).
+            labels (Img): The cluster labels of each pixel.
+
+        Returns:
+            colored_image (Img): The image with the pixels colored
+                           with the color of their cluster center.
+    """
+
+    return colors[labels].reshape(shape)
 
 
 ###################################################################
@@ -98,8 +120,10 @@ def main() -> None:
     print(args) # debug
     for path in args.input:
         image = load_image(path)
-        colors = cluster_colors(image, args.color_palette_size)
-        print(colors) # debug
+        colors, labels = cluster(image, args.color_palette_size)
+        colored_image = get_colored_image(image.shape, colors, labels)
+        cv.imshow('image', colored_image); cv.waitKey(0); cv.destroyAllWindows() # debug
+        save_image(args.output, colored_image)
 
 
 if __name__ == "__main__":
