@@ -12,11 +12,10 @@ from sklearn.cluster import KMeans # type: ignore
 ###################################################################
 
 Img = npt.NDArray[np.uint8]
+Mask = npt.NDArray[np.bool_]
 Color = tp.Tuple[int, int, int]
 Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
-
-
 class ColorMode(Enum):
     BGR = 'BGR'
     HSL = 'HSL'
@@ -24,6 +23,8 @@ class ColorMode(Enum):
     LAB = 'LAB'
     GRAYSCALE = 'GRAYSCALE'
 
+
+OUTLINE_COLOR = (0, 0, 0)
 
 ###################################################################
 #              COLOR CLUSTERING AND IMAGE PROCESSING              #
@@ -43,7 +44,7 @@ def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
             Img: The image with the colors replaced by their assigned cluster center.
     """
 
-    pixels = image.reshape(-1, 3)
+    pixels = image.reshape(-1, image.shape[-1] if len(image.shape) > 2 else 1)
     kmeans = KMeans(n_clusters=n_colors, random_state=seed, n_init='auto').fit(pixels)
     colors = kmeans.cluster_centers_.astype(np.uint8)
     labels = kmeans.labels_.astype(np.uint8)
@@ -82,6 +83,49 @@ def blur_image(image: Img) -> Img:
     return cv.bilateralFilter(image, 5, 200, 50)
 
 
+###################################################################
+#                  OUTLINES AND NUMBERS (LABELS)                  #
+###################################################################
+
+def get_outlines(image: Img) -> Mask:
+    """ Get the outlines of an image.
+
+        Args:
+            image (Img): The image to get the outlines of.
+
+        Returns:
+            Mask: The image with the outlines.
+    """
+
+    edges = cv.Canny(image, 0, 0)
+    debug_show_image(edges, ColorMode.BGR)
+    save_image('edges.png', edges.astype(bool).astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+    return edges.astype(bool)
+
+
+def get_numbers(outlines: Mask) -> Img:
+    """ Get the numbers (labels) for the outlines of an image.
+
+        Args:
+            outlines (Mask): The outlines of the image.
+
+        Returns:
+            Img: The image with the numbers (labels).
+    """
+
+    contours, _ = cv.findContours(outlines.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+    numbers = np.zeros(outlines.shape, dtype=np.uint8)
+    for i, contour in enumerate(contours):
+        cv.drawContours(numbers, contours, i, 255, 1)
+    debug_show_image(numbers, ColorMode.GRAYSCALE)
+    save_image('numbers.png', numbers, ColorMode.GRAYSCALE) # debug
+    return numbers
+
+
+###################################################################
+#                     IMAGE LOADING AND SAVING                    #
+###################################################################
+
 def cvt_from_bgr(bgr_img: Img, mode: ColorMode) -> Img:
     """ Convert an image from BGR to another color mode.
 
@@ -117,10 +161,6 @@ def cvt_to_bgr(img: Img, mode: ColorMode) -> Img:
     elif mode == ColorMode.LAB: return cv.cvtColor(img, cv.COLOR_LAB2BGR)
     elif mode == ColorMode.GRAYSCALE: return cv.cvtColor(img, cv.COLOR_GRAY2BGR)
 
-
-###################################################################
-#                     IMAGE LOADING AND SAVING                    #
-###################################################################
 
 def load_image(path: str, color_mode: ColorMode, max_size: tp.Optional[tp.Tuple[int, int]] = None,
                ) -> np.ndarray:
@@ -224,7 +264,7 @@ def _arg_parser() -> ArgumentParser:
     return parser
 
 
-# DEBUG FUNCTION
+# debug function
 def debug_show_image(image: Img, colormode: ColorMode) -> None:
     cv.imshow('image', cvt_to_bgr(image, colormode)); cv.waitKey(0); cv.destroyWindow('image')
 
@@ -239,7 +279,12 @@ def main() -> None:
         colors, labels = cluster(image, args.color_palette_size)
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode)
-        save_image(args.output, colored_image, color_mode)
+        outlines = get_outlines(colored_image)
+        numbers = get_numbers(outlines)
+        bgr_image = cvt_to_bgr(colored_image, color_mode)
+        if args.outline:
+            bgr_image[outlines] = OUTLINE_COLOR
+        save_image(args.output, bgr_image, ColorMode.BGR)
 
 
 if __name__ == "__main__":
