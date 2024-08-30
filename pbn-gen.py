@@ -17,6 +17,14 @@ Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
 
 
+class ColorMode(Enum):
+    BGR = 'BGR'
+    HSL = 'HSL'
+    HSV = 'HSV'
+    LAB = 'LAB'
+    GRAYSCALE = 'GRAYSCALE'
+
+
 ###################################################################
 #              COLOR CLUSTERING AND IMAGE PROCESSING              #
 ###################################################################
@@ -74,25 +82,68 @@ def blur_image(image: Img) -> Img:
     return cv.bilateralFilter(image, 5, 200, 50)
 
 
+def cvt_from_bgr(bgr_img: Img, mode: ColorMode) -> Img:
+    """ Convert an image from BGR to another color mode.
+
+        Args:
+            bgr_img (Img): The BGR image to convert.
+            mode (ColorMode): The color mode to convert to.
+        
+        Returns:
+            Img: The converted image.
+    """
+
+    if mode == ColorMode.BGR: return bgr_img
+    elif mode == ColorMode.HSL: return cv.cvtColor(bgr_img, cv.COLOR_BGR2HLS)
+    elif mode == ColorMode.HSV: return cv.cvtColor(bgr_img, cv.COLOR_BGR2HSV)
+    elif mode == ColorMode.LAB: return cv.cvtColor(bgr_img, cv.COLOR_BGR2LAB)
+    elif mode == ColorMode.GRAYSCALE: return cv.cvtColor(bgr_img, cv.COLOR_BGR2GRAY)
+
+
+def cvt_to_bgr(img: Img, mode: ColorMode) -> Img:
+    """ Convert an image to BGR from another color mode.
+
+        Args:
+            img (Img): The image to convert.
+            mode (ColorMode): The color mode to convert from.
+        
+        Returns:
+            Img: The converted image in BGR.
+    """
+
+    if mode == ColorMode.BGR: return img
+    elif mode == ColorMode.HSL: return cv.cvtColor(img, cv.COLOR_HLS2BGR)
+    elif mode == ColorMode.HSV: return cv.cvtColor(img, cv.COLOR_HSV2BGR)
+    elif mode == ColorMode.LAB: return cv.cvtColor(img, cv.COLOR_LAB2BGR)
+    elif mode == ColorMode.GRAYSCALE: return cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+
 
 ###################################################################
 #                     IMAGE LOADING AND SAVING                    #
 ###################################################################
 
-def load_image(path: str, max_size: tp.Optional[tp.Tuple[int, int]] = None) -> np.ndarray:
+def load_image(path: str, color_mode: ColorMode, max_size: tp.Optional[tp.Tuple[int, int]] = None,
+               ) -> np.ndarray:
     """ Load an image from a file. If max_size is specified, the image is resized to fit within
-        the size while maintaining the aspect ratio.
+        the size while maintaining the aspect ratio. The image is converted to the specified
+        color mode.
 
         Args:
             path (str): The path of the image file.
+            color_mode (ColorMode): The color mode to convert the image to.
             max_size (Optional[Tuple[int, int]]): The maximum size of the resized image
                 as (width, height).
 
         Returns:
-            Img: The loaded image.
+            Img: The loaded image in the specified color mode.
     """
 
-    img: Img = cv.imread(path)
+    if not cv.haveImageReader(path):
+        raise ValueError(f"Unsupported image format for file {path}.")
+    try:
+        img: Img = cv.imread(path, cv.IMREAD_COLOR)
+    except Exception as e:
+        raise ValueError(f"Error loading image from {path}: {e}")
     if max_size is not None:
         # Resize the image to fit within the max size while maintaining the aspect ratio
         height, width = img.shape[:2]
@@ -102,13 +153,26 @@ def load_image(path: str, max_size: tp.Optional[tp.Tuple[int, int]] = None) -> n
             img = cv.resize(img, (0, 0), fx=shrink_ratio, fy=shrink_ratio,
                             interpolation=cv.INTER_AREA)
 
-    return img
+    return cvt_from_bgr(img, color_mode)
 
 
-def save_image(path: str, image: np.ndarray) -> None:
-    """ Save an image to a file. """
+def save_image(path: str, image: np.ndarray, image_color_mode: ColorMode) -> None:
+    """ Save an image to a file. The image is converted to BGR before saving.
 
-    cv.imwrite(path, image)
+        Args:
+            path (str): The path of the image file. If no extension is provided,
+                or the extension is not supported by OpenCV, '.png' is appended.
+            image (Img): The image to save.
+            image_color_mode (ColorMode): The color mode of the input image.
+    """
+
+    if not cv.haveImageWriter(path):
+        path += ('.png')
+    image = cvt_to_bgr(image, image_color_mode)
+    try:
+        cv.imwrite(path, image)
+    except Exception as e:
+        print(f"Error saving image to {path}: {e}")
 
 
 ###################################################################
@@ -127,15 +191,20 @@ def _arg_parser() -> ArgumentParser:
                         help='Resize the input image to fit within the specified size \
                               The aspect ratio is maintained.'
     )
+    parser.add_argument('-c', '--color-mode',
+                        type=lambda x: x.upper(),
+                        required=False, default=ColorMode.LAB.value,
+                        choices=[mode.value for mode in ColorMode],
+                        help='Color mode of the input image. Defaults to LAB.'
+    )
     parser.add_argument('-o', '--output',
                         type=str, required=True,
                         help='Path of output image.'
     )
-    parser.add_argument(
-        '-k', '--color-palette-size',
-        type=int, required=False,
-        default=10,
-        help='Number of colors used in the output. Defaults to 10.'
+    parser.add_argument('-k', '--color-palette-size',
+                        type=int, required=False,
+                        default=10,
+                        help='Number of colors used in the output. Defaults to 10.'
     )
     parser.add_argument('-l', '--outline',
                         action="store_true",
@@ -155,16 +224,22 @@ def _arg_parser() -> ArgumentParser:
     return parser
 
 
+# DEBUG FUNCTION
+def debug_show_image(image: Img, colormode: ColorMode) -> None:
+    cv.imshow('image', cvt_to_bgr(image, colormode)); cv.waitKey(0); cv.destroyWindow('image')
+
+
 def main() -> None:
     args = _arg_parser().parse_args()
     for path in args.input:
-        image = load_image(path, args.resize)
+        color_mode = ColorMode[args.color_mode]
+        image = load_image(path, color_mode, args.resize)
         image = blur_image(image)
-        cv.imshow('image', image); cv.waitKey(0); cv.destroyAllWindows() # debug
+        debug_show_image(image, color_mode)
         colors, labels = cluster(image, args.color_palette_size)
         colored_image = get_smooth_image(image.shape, colors, labels)
-        cv.imshow('image', colored_image); cv.waitKey(0); cv.destroyAllWindows() # debug
-        save_image(args.output, colored_image)
+        debug_show_image(colored_image, color_mode)
+        save_image(args.output, colored_image, color_mode)
 
 
 if __name__ == "__main__":
