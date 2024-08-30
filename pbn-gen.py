@@ -18,7 +18,7 @@ Shape = tp.Tuple[int, ...]
 
 
 ###################################################################
-#                         COLOR CLUSTERING                        #
+#              COLOR CLUSTERING AND IMAGE PROCESSING              #
 ###################################################################
 
 def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
@@ -26,37 +26,54 @@ def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
         replaced by their assigned cluster center (color).
 
         Args:
-            image: The image to cluster.
-            n_colors: The number of colors to cluster the image into.
+            image (Img): The image to cluster.
+            n_colors (int): The number of colors to cluster the image into.
             seed: The seed for the random number generator.
 
         Returns:
-            colors: The cluster centers (colors).
-            clustered_image: The image with the colors replaced
-                             by their assigned cluster center.
+            Colors: The cluster centers (colors).
+            Img: The image with the colors replaced by their assigned cluster center.
     """
 
     pixels = image.reshape(-1, 3)
-    kmeans = KMeans(n_clusters=n_colors, random_state=seed).fit(pixels)
+    kmeans = KMeans(n_clusters=n_colors, random_state=seed, n_init='auto').fit(pixels)
     colors = kmeans.cluster_centers_.astype(np.uint8)
     labels = kmeans.labels_.astype(np.uint8)
     return colors, labels
 
 
-def get_colored_image(shape: Shape, colors: Colors, labels: Img) -> Img:
+def get_smooth_image(shape: Shape, colors: Colors, labels: Img, blur_size: int = 3) -> Img:
     """ Get an image where each pixel is colored with the color of its cluster center.
+        The image is smoothed using a median filter.
 
         Args:
             shape (Shape): The shape of the image.
             colors (Colors): The cluster centers (colors).
             labels (Img): The cluster labels of each pixel.
+            blur_size (int): The size of the neighborhood for smoothing.
 
         Returns:
-            colored_image (Img): The image with the pixels colored
-                           with the color of their cluster center.
+            Img: The image with the pixels colored with the color of their cluster center
+                 after smoothing with a median blur filter.
     """
 
-    return colors[labels].reshape(shape)
+    img: Img = colors[labels].reshape(shape)
+    return cv.medianBlur(img, blur_size)
+
+
+def blur_image(image: Img, blur_size: int = 3) -> Img:
+    """ Apply a bilateral filter to an image.
+
+        Args:
+            image (Img): The image to blur.
+            blur_size (int): The size of the neighborhood for smoothing.
+
+        Returns:
+            Img: The blurred image.
+    """
+
+    return cv.bilateralFilter(image, blur_size, 75, 75)
+
 
 
 ###################################################################
@@ -71,6 +88,9 @@ def load_image(path: str) -> np.ndarray:
 
 def save_image(path: str, image: np.ndarray) -> None:
     """Save an image to a file."""
+
+    if not path.endswith('.png'):
+        path += '.png'
 
     cv.imwrite(path, image)
 
@@ -89,7 +109,7 @@ def _arg_parser() -> ArgumentParser:
     parser.add_argument('-o', '--output',
                         type=str, required=True,
                         help='Path of output image. \
-                              The file extension is ignored and set to .png'
+                              The file extension is always set to .png'
     )
     parser.add_argument(
         '-k', '--color-palette-size',
@@ -120,8 +140,10 @@ def main() -> None:
     print(args) # debug
     for path in args.input:
         image = load_image(path)
+        image = blur_image(image)
+        cv.imshow('image', image); cv.waitKey(0); cv.destroyAllWindows() # debug
         colors, labels = cluster(image, args.color_palette_size)
-        colored_image = get_colored_image(image.shape, colors, labels)
+        colored_image = get_smooth_image(image.shape, colors, labels)
         cv.imshow('image', colored_image); cv.waitKey(0); cv.destroyAllWindows() # debug
         save_image(args.output, colored_image)
 
