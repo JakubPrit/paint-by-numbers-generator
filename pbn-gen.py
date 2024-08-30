@@ -136,7 +136,7 @@ def get_numbers(mask: Mask) -> Mask:
 
     bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
     bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
-    n_components, components = cv.connectedComponents(~(bordered))
+    n_components, components = cv.connectedComponents((bordered))
 
     hue = np.uint8(180 * components / n_components)
     full255 = np.full_like(hue, 255, np.uint8)
