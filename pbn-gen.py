@@ -124,17 +124,26 @@ def get_outlines_mask(contours: Contours, shape: Shape) -> Mask:
     return mask.astype(bool)
 
 
-def get_numbers(contours: Contours) -> Mask:
+def get_numbers(mask: Mask) -> Mask:
     """ Get the numbers (labels) for the outlines of an image.
 
         Args:
-            contours (Contours): The contours of the image
+            mask (Mask): The mask of the outlines.
 
         Returns:
             Mask: The mask with the numbers (labels).
     """
 
-    # todo
+    bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
+    bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
+    n_components, components = cv.connectedComponents(~(bordered))
+
+    hue = np.uint8(180 * components / n_components)
+    full255 = np.full_like(hue, 255, np.uint8)
+    dbg_img = cv.merge([hue, full255, full255])
+    dbg_img[hue==0] = (0, 0, 0)
+    debug_show_image(dbg_img, ColorMode.HSV)
+
     raise NotImplementedError
 
 
@@ -297,7 +306,7 @@ def main() -> None:
         debug_show_image(colored_image, color_mode)
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
-        # numbers = get_numbers(contours)
+        numbers = get_numbers(outlines)
         bgr_image = cvt_to_bgr(colored_image, color_mode)
         if args.outline:
             bgr_image[outlines] = OUTLINE_COLOR
