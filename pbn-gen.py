@@ -106,10 +106,7 @@ def load_image(path: str, max_size: tp.Optional[tp.Tuple[int, int]] = None) -> n
 
 
 def save_image(path: str, image: np.ndarray) -> None:
-    """ Save an image to a png file. """
-
-    if not path.endswith('.png'):
-        path += '.jpg'
+    """ Save an image to a file. """
 
     cv.imwrite(path, image)
 
@@ -132,8 +129,7 @@ def _arg_parser() -> ArgumentParser:
     )
     parser.add_argument('-o', '--output',
                         type=str, required=True,
-                        help='Path of output image. \
-                              The file extension is always set to .png'
+                        help='Path of output image.'
     )
     parser.add_argument(
         '-k', '--color-palette-size',
