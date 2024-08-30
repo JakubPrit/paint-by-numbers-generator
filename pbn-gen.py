@@ -16,6 +16,7 @@ Mask = npt.NDArray[np.bool_]
 Color = tp.Tuple[int, int, int]
 Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
+Contours = tp.List[np.ndarray]
 class ColorMode(Enum):
     BGR = 'BGR'
     HSL = 'HSL'
@@ -87,39 +88,54 @@ def blur_image(image: Img) -> Img:
 #                  OUTLINES AND NUMBERS (LABELS)                  #
 ###################################################################
 
-def get_outlines(image: Img) -> Mask:
-    """ Get the outlines of an image.
+def get_contours(image: Img) -> Contours:
+    """ Get the contours (edges / outlines) of an image.
 
         Args:
-            image (Img): The image to get the outlines of.
+            image (Img): The image to get the contours of.
 
         Returns:
-            Mask: The image with the outlines.
+            Contours: The contours of the image.
     """
 
     edges = cv.Canny(image, 0, 0)
-    debug_show_image(edges, ColorMode.BGR)
-    save_image('edges.png', edges.astype(bool).astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
-    return edges.astype(bool)
+    edges = edges.astype(bool)
+    contours, _ = cv.findContours(edges.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+    dbg_img = np.zeros_like(edges, dtype=np.uint8) # debug
+    cv.drawContours(dbg_img, contours, -1, 255, 1) # debug
+    debug_show_image(dbg_img, ColorMode.GRAYSCALE) # debug
+    save_image('contours.png', dbg_img, ColorMode.GRAYSCALE) # debug
+    return contours
 
 
-def get_numbers(outlines: Mask) -> Img:
+def get_outlines_mask(contours: Contours, shape: Shape) -> Mask:
+    """ Get a mask of the outlines of an image.
+
+        Args:
+            contours (Contours): The contours of the image.
+            shape (Shape): The shape of the image.
+
+        Returns:
+            Mask: The mask of the outlines.
+    """
+
+    mask = np.zeros(shape[:2], dtype=np.uint8)
+    cv.drawContours(mask, contours, -1, 1, 1)
+    return mask.astype(bool)
+
+
+def get_numbers(contours: Contours) -> Mask:
     """ Get the numbers (labels) for the outlines of an image.
 
         Args:
-            outlines (Mask): The outlines of the image.
+            contours (Contours): The contours of the image
 
         Returns:
-            Img: The image with the numbers (labels).
+            Mask: The mask with the numbers (labels).
     """
 
-    contours, _ = cv.findContours(outlines.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-    numbers = np.zeros(outlines.shape, dtype=np.uint8)
-    for i, contour in enumerate(contours):
-        cv.drawContours(numbers, contours, i, 255, 1)
-    debug_show_image(numbers, ColorMode.GRAYSCALE)
-    save_image('numbers.png', numbers, ColorMode.GRAYSCALE) # debug
-    return numbers
+    # todo
+    raise NotImplementedError
 
 
 ###################################################################
@@ -279,8 +295,9 @@ def main() -> None:
         colors, labels = cluster(image, args.color_palette_size)
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode)
-        outlines = get_outlines(colored_image)
-        numbers = get_numbers(outlines)
+        contours = get_contours(colored_image)
+        outlines = get_outlines_mask(contours, colored_image.shape)
+        # numbers = get_numbers(contours)
         bgr_image = cvt_to_bgr(colored_image, color_mode)
         if args.outline:
             bgr_image[outlines] = OUTLINE_COLOR
