@@ -61,18 +61,17 @@ def get_smooth_image(shape: Shape, colors: Colors, labels: Img, blur_size: int =
     return cv.medianBlur(img, blur_size)
 
 
-def blur_image(image: Img, blur_size: int = 3) -> Img:
+def blur_image(image: Img) -> Img:
     """ Apply a bilateral filter to an image.
 
         Args:
             image (Img): The image to blur.
-            blur_size (int): The size of the neighborhood for smoothing.
 
         Returns:
             Img: The blurred image.
     """
 
-    return cv.bilateralFilter(image, blur_size, 75, 75)
+    return cv.bilateralFilter(image, 5, 200, 50)
 
 
 
@@ -80,17 +79,37 @@ def blur_image(image: Img, blur_size: int = 3) -> Img:
 #                     IMAGE LOADING AND SAVING                    #
 ###################################################################
 
-def load_image(path: str) -> np.ndarray:
-    """Load an image from a file."""
+def load_image(path: str, max_size: tp.Optional[tp.Tuple[int, int]] = None) -> np.ndarray:
+    """ Load an image from a file. If max_size is specified, the image is resized to fit within
+        the size while maintaining the aspect ratio.
 
-    return cv.imread(path)
+        Args:
+            path (str): The path of the image file.
+            max_size (Optional[Tuple[int, int]]): The maximum size of the resized image
+                as (width, height).
+
+        Returns:
+            Img: The loaded image.
+    """
+
+    img: Img = cv.imread(path)
+    if max_size is not None:
+        # Resize the image to fit within the max size while maintaining the aspect ratio
+        height, width = img.shape[:2]
+        target_width, target_height = max_size
+        shrink_ratio = min(target_width / width, target_height / height)
+        if shrink_ratio < 1:
+            img = cv.resize(img, (0, 0), fx=shrink_ratio, fy=shrink_ratio,
+                            interpolation=cv.INTER_AREA)
+
+    return img
 
 
 def save_image(path: str, image: np.ndarray) -> None:
-    """Save an image to a file."""
+    """ Save an image to a png file. """
 
     if not path.endswith('.png'):
-        path += '.png'
+        path += '.jpg'
 
     cv.imwrite(path, image)
 
@@ -99,12 +118,17 @@ def save_image(path: str, image: np.ndarray) -> None:
 #                ARGUMENT PARSING AND MAIN FUNCTION               #
 ###################################################################
 
-
 def _arg_parser() -> ArgumentParser:
     parser = ArgumentParser()
     parser.add_argument('input',
                         type=str, nargs='+',
                         help='Paths of input images.'
+    )
+    parser.add_argument('-r', '--resize',
+                        type=int, nargs=2, required=False, default=None,
+                        metavar=('WIDTH', 'HEIGHT'),
+                        help='Resize the input image to fit within the specified size \
+                              The aspect ratio is maintained.'
     )
     parser.add_argument('-o', '--output',
                         type=str, required=True,
@@ -137,9 +161,8 @@ def _arg_parser() -> ArgumentParser:
 
 def main() -> None:
     args = _arg_parser().parse_args()
-    print(args) # debug
     for path in args.input:
-        image = load_image(path)
+        image = load_image(path, args.resize)
         image = blur_image(image)
         cv.imshow('image', image); cv.waitKey(0); cv.destroyAllWindows() # debug
         colors, labels = cluster(image, args.color_palette_size)
