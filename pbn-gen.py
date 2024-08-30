@@ -5,6 +5,7 @@ import numpy.typing as npt
 from enum import Enum
 from argparse import ArgumentParser
 from sklearn.cluster import KMeans # type: ignore
+from random import randint
 
 
 ###################################################################
@@ -105,6 +106,9 @@ def get_contours(image: Img) -> Contours:
     cv.drawContours(dbg_img, contours, -1, 255, 1) # debug
     debug_show_image(dbg_img, ColorMode.GRAYSCALE) # debug
     save_image('contours.png', dbg_img, ColorMode.GRAYSCALE) # debug
+    cv.drawContours(dbg_img, contours, -1, 255, -1) # debug
+    debug_show_image(dbg_img, ColorMode.GRAYSCALE) # debug
+    save_image('contours_fill.png', dbg_img, ColorMode.GRAYSCALE) # debug
     return contours
 
 
@@ -136,13 +140,16 @@ def get_numbers(mask: Mask) -> Mask:
 
     bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
     bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
-    n_components, components = cv.connectedComponents((bordered))
+    bordered = np.logical_not(bordered).astype(np.uint8)*255
+    debug_show_image(bordered, ColorMode.GRAYSCALE)
+    n_components, components = cv.connectedComponents(bordered, connectivity=4)
 
     hue = np.uint8(180 * components / n_components)
     full255 = np.full_like(hue, 255, np.uint8)
     dbg_img = cv.merge([hue, full255, full255])
     dbg_img[hue==0] = (0, 0, 0)
     debug_show_image(dbg_img, ColorMode.HSV)
+    save_image('connected.png', dbg_img, ColorMode.HSV)
 
     raise NotImplementedError
 
@@ -254,7 +261,7 @@ def _arg_parser() -> ArgumentParser:
                         type=int, nargs=2, required=False, default=None,
                         metavar=('WIDTH', 'HEIGHT'),
                         help='Resize the input image to fit within the specified size \
-                              The aspect ratio is maintained.'
+                        The aspect ratio is maintained.'
     )
     parser.add_argument('-c', '--color-mode',
                         type=lambda x: x.upper(),
@@ -286,6 +293,12 @@ def _arg_parser() -> ArgumentParser:
                         required=False, default=False,
                         help='Have numbers in the output image.'
     )
+    parser.add_argument('-s', '--seed',
+                        type=int, required=False,
+                        default=None,
+                        help='Seed for the color clustering algorithm. If not provided, \
+                        a random seed is used.'
+    )
     return parser
 
 
@@ -301,7 +314,8 @@ def main() -> None:
         image = load_image(path, color_mode, args.resize)
         image = blur_image(image)
         debug_show_image(image, color_mode)
-        colors, labels = cluster(image, args.color_palette_size)
+        seed = args.seed if args.seed is not None else randint(0, 1000)
+        colors, labels = cluster(image, args.color_palette_size, seed)
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode)
         contours = get_contours(colored_image)
