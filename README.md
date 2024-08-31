@@ -28,7 +28,7 @@ To install the dependencies with pip (after installing an appropriate version of
 run the following command:
 
 ```none
-pip install numpy opencv-python scikit-learn
+pip install numpy>=1.19.3 opencv-python>=4.5.2.52 scikit-learn>=1.2.0
 ```
 
 ### Setup
@@ -39,23 +39,28 @@ It is then ready to be run with Python.
 ## Usage
 
 ```none
-usage: pbn-gen.py [-h] [-r WIDTH HEIGHT] [-c {BGR,HSL,HSV,LAB,GRAYSCALE}] -o OUTPUT [-k COLOR_PALETTE_SIZE] [-l] [-f] [-n] [-s SEED] input [input ...]
+usage: pbn-gen.py [-h] -o OUTPUT [-r WIDTH HEIGHT] [-c {BGR,HSL,HSV,LAB,GRAYSCALE}] [-k COLOR_PALETTE_SIZE] [-m MIN_CELL_SIZE] [-M MAX_CELLS] [-O]
+                  [-f] [-n] [-s SEED]
+                  input [input ...]
 
 positional arguments:
   input                 Paths of input images.
 
 options:
   -h, --help            show this help message and exit
-  -r WIDTH HEIGHT, --resize WIDTH HEIGHT
-                        Resize the input image to fit within the specified size The aspect ratio is maintained.
-  -c {BGR,HSL,HSV,LAB,GRAYSCALE}, --color-mode {BGR,HSL,HSV,LAB,GRAYSCALE}
-                        Color mode of the input image. Defaults to LAB.
   -o OUTPUT, --output OUTPUT
                         Path of output image.
+  -r WIDTH HEIGHT, --resize WIDTH HEIGHT
+                        Resize the input image to fit within the specified size. The aspect ratio is maintained.
+  -c {BGR,HSL,HSV,LAB,GRAYSCALE}, --color-mode {BGR,HSL,HSV,LAB,GRAYSCALE}
+                        Color mode of the input image. Defaults to LAB.
   -k COLOR_PALETTE_SIZE, --color-palette-size COLOR_PALETTE_SIZE
                         Number of colors used in the output. Defaults to 10.
-  -l, --outline         Have outlines in the output image.
+  -m MIN_CELL_SIZE, --min-cell-size MIN_CELL_SIZE
+                        Minimum size of a cell in the output image in pixels Defaults to 200. If set to 0, all cells are naturally kept.
+  -M MAX_CELLS, --max-cells MAX_CELLS
+                        Maximum number of cells in the output image. Defaults to 250. If set to 0 or a negative number, no limit is imposed.
+  -O, --no-outline      Do not have outlines in the output image.
   -f, --fill            Fill the output image with the colors.
-  -n, --numbers         Have numbers in the output image.
-  -s SEED, --seed SEED  Seed for the color clustering algorithm. If not provided, a random seed is used.
-```
+  -n, --numbers         Have numbers in the output image. This feature is currently broken
+  -s SEED, --seed SEED  Seed for the color clustering algorithm. If not provided, a random seed is used.```

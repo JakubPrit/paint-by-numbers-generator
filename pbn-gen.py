@@ -1,7 +1,6 @@
 import cv2 as cv
 import numpy as np
 import typing as tp
-import numpy.typing as npt
 from enum import Enum
 from argparse import ArgumentParser
 from sklearn.cluster import KMeans # type: ignore
@@ -12,10 +11,10 @@ from random import randint
 #                  TYPE DEFINITIONS AND CONSTANTS                 #
 ###################################################################
 
-Img = npt.NDArray[np.uint8]
-Mask = npt.NDArray[np.bool_]
+Img = np.ndarray
+Mask = np.ndarray
+Colors = np.ndarray
 Color = tp.Tuple[int, int, int]
-Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
 Contours = tp.List[np.ndarray]
 InscribedCircle = tp.Tuple[tp.Tuple[int, int], float, int]
@@ -235,7 +234,7 @@ def fill_unmasked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode)
     closest_colors = colors[np.argmin(color_distances, axis=0)]
     result = image.copy()
     result[inverse_mask] = closest_colors[inverse_mask]
-    debug_show_image(result, color_mode) # debug
+    # debug_show_image(result, color_mode) # debug
     return result
 
 
@@ -343,8 +342,42 @@ def put_numbers(image: Img, bgr_image: Img, colors: Colors, color_mode: ColorMod
     for (x, y), r, i in circles:
         # print(x, y, r, i) # debug
         # cv.circle(bgr_image, (x, y), int(r), (0, 0, 0), -1)
-        cv.putText(bgr_image, str(i), (x, y), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1)
+        cv.putText(bgr_image, str(i + 1), (x, y), cv.FONT_HERSHEY_SIMPLEX, 0.3, (0, 0, 0), 1)
     # debug_show_image(bgr_image, ColorMode.BGR) # debug
+
+
+def add_palette(image: Img, colors: Colors) -> Img:
+    """ Return an image with the color palette of the image added to the bottom.
+
+        Args:
+            image (Img): The image to add the color palette to, in BGR.
+            colors (Colors): The colors in the image.
+
+        Returns:
+            Img: The image with the color palette added to the bottom.
+    """
+
+    REL_SIZE = 0.8
+    REL_PADDING_LEFT_RIGHT = 0.05
+    REL_MARGIN_TOP_BOTTOM = 0.1
+    NUM_SIZE = 0.5
+
+    total_width = image.shape[1] * (1 - 2 * REL_PADDING_LEFT_RIGHT)
+    width_per_color = total_width // len(colors)
+    radius = int(REL_SIZE * width_per_color / 2)
+    height = int(radius * 2 * (1 + REL_MARGIN_TOP_BOTTOM))
+    left = int(image.shape[1] * REL_PADDING_LEFT_RIGHT)
+    middle_y = image.shape[0] + height // 2
+    new_img = np.ones((image.shape[0] + height, *image.shape[1:]), dtype=np.uint8) * 255
+    for i in range(len(colors)):
+        x = left + int((i + 0.5) * width_per_color)
+        print(tuple(colors[i]))
+        cv.circle(new_img, (x, middle_y), radius, tuple(colors[i].tolist()), -1)
+        num_offset = int(NUM_SIZE * 10)
+        cv.putText(new_img, str(i + 1), (x - num_offset * len(str(i + 1)), middle_y + num_offset),
+                   cv.FONT_HERSHEY_SIMPLEX, NUM_SIZE, (0, 0, 0), 2)
+
+    return new_img
 
 
 ###################################################################
@@ -457,7 +490,7 @@ def _arg_parser() -> ArgumentParser:
     parser.add_argument('-r', '--resize',
                         type=int, nargs=2, required=False, default=None,
                         metavar=('WIDTH', 'HEIGHT'),
-                        help='Resize the input image to fit within the specified size \
+                        help='Resize the input image to fit within the specified size. \
                         The aspect ratio is maintained.'
     )
     parser.add_argument('-c', '--color-mode',
@@ -551,6 +584,15 @@ def main() -> None:
         if args.numbers:
             print('WARNING: The number placement algorithm is broken in this version and using --numbers is not recommended, the output will probably be incorrect')
             put_numbers(colored_image, bgr_image, colors, color_mode)
+        print(colors)
+        colors_array = np.asarray(colors, dtype=np.uint8)
+        if color_mode == ColorMode.GRAYSCALE:
+            colors_array = colors_array.reshape(1, -1)
+        else:
+            colors_array = colors_array.reshape(1, -1, 3)
+        colors_bgr = cvt_to_bgr(colors_array, color_mode)
+        print(colors_bgr[0])
+        bgr_image = add_palette(bgr_image, colors_bgr[0].copy())
         debug_show_image(bgr_image, ColorMode.BGR)
         save_image(args.output, bgr_image, ColorMode.BGR)
 
