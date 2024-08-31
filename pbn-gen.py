@@ -89,8 +89,8 @@ def blur_image(image: Img) -> Img:
     return cv.bilateralFilter(image, 7, 150, 50)
 
 
-def mask_good_components(image: Img, colors: Colors,
-                            min_size: int, max_components: int) -> Mask:
+def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
+                         min_size: int, max_components: int) -> Mask:
     """ Mask out small connected components from an image. By connected components,
         connected regions of the same color are meant. Also removes thin border components
         (components that are almost completely filled by other components).
@@ -98,6 +98,7 @@ def mask_good_components(image: Img, colors: Colors,
         Args:
             image (Img): The image to remove small components from.
             colors (Colors): The colors in the image.
+            color_mode (ColorMode): The color mode of the image.
             min_size (int): The minimum size of the connected components to keep.
             max_components (int): The maximum number of connected components to keep.
 
@@ -106,7 +107,10 @@ def mask_good_components(image: Img, colors: Colors,
     """
 
     # Convert the image to a list of masks, one for each color
-    masks = [np.all(image == color, axis=-1) for color in colors]
+    if color_mode == ColorMode.GRAYSCALE:
+        masks = [image == color for color in colors]
+    else:
+        masks = [np.all(image == color, axis=-1) for color in colors]
 
     good_contours = []
     all_contours, all_depths, all_children, all_areas = [], [], [], []
@@ -143,7 +147,7 @@ def mask_good_components(image: Img, colors: Colors,
             component_areas[hierarchy[i][3]] -= component_areas[i]
 
         # Keep the outer components with an area greater than the minimum size and are not thin
-        THIN_THRESHOLD = 0.0
+        THIN_THRESHOLD = -1.0
         good_contours.extend([(i_mask, i) for i in outer_contours_idx
                               if component_areas[i] >= min_size
                               and component_areas[i] >= THIN_THRESHOLD * contour_areas[i]])
@@ -170,19 +174,43 @@ def mask_good_components(image: Img, colors: Colors,
     # Create a mask of the kept components
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
     for i_mask in range(len(masks)):
+        kept_mask_this_color = np.zeros_like(kept_mask, dtype=np.uint8)
         kept_contours = sorted(all_good_contours_idx[i_mask], key=lambda x: all_depths[i_mask][x])
         for i in kept_contours:
-            cv.drawContours(kept_mask, [all_contours[i_mask][i]], 0, 1, -1)
+            cv.drawContours(kept_mask_this_color, [all_contours[i_mask][i]], 0, 1, -1)
             for j in all_children[i_mask][i]:
-                cv.drawContours(kept_mask, [all_contours[i_mask][j]], 0, 0, -1)
-
-    # BROKEN some parts are still removed even if min_size is 0 and max_components is not enforced
+                cv.drawContours(kept_mask_this_color, [all_contours[i_mask][j]], 0, 0, -1)
+        kept_mask |= kept_mask_this_color
+        del kept_mask_this_color, kept_contours # just to be sure that I don't use them by mistake
 
     dbg_img = image.copy() # debug
     dbg_img[np.logical_not(kept_mask.astype(bool))] = 0 # debug
-    debug_show_image(dbg_img, ColorMode.LAB) # debug
+    debug_show_image(dbg_img, color_mode) # debug
 
     return kept_mask.astype(bool)
+
+
+def fill_masked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode) -> Img:
+    """ Fill the masked regions of an image with the colors of the neighboring regions.
+
+        Args:
+            image (Img): The image to fill.
+            mask (Mask): The mask of the regions to fill.
+            colors (Colors): The colors of the masked regions.
+            color_mode (ColorMode): The color mode of the image.
+
+        Returns:
+            Img: The image with the unmasked regions filled.
+    """
+
+    color_masks = [image == color for color in colors]
+    inverted_color_masks = [np.logical_not(color_mask) for color_mask in color_masks]
+    color_distances = [cv.distanceTransform(inv_color_mask.astype(np.uint8), cv.DIST_L2, 3)
+                       for inv_color_mask in inverted_color_masks]
+    # closest color = color with the smallest color distance for each pixel
+    closest_colors = np.argmin(color_distances, axis=0)
+
+    raise NotImplementedError
 
 
 ###################################################################
@@ -240,18 +268,20 @@ def get_numbers(mask: Mask) -> Mask:
             Mask: The mask with the numbers (labels).
     """
 
-    bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
-    bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
-    bordered = np.logical_not(bordered).astype(np.uint8)*255
-    debug_show_image(bordered, ColorMode.GRAYSCALE)
-    n_components, components = cv.connectedComponents(bordered, connectivity=4)
+    # TODO
 
-    hue = np.uint8(180 * components / n_components)
-    full255 = np.full_like(hue, 255, np.uint8)
-    dbg_img = cv.merge([hue, full255, full255])
-    dbg_img[hue==0] = (0, 0, 0)
-    debug_show_image(dbg_img, ColorMode.HSV)
-    save_image('connected.png', dbg_img, ColorMode.HSV)
+    # // bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
+    # // bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
+    # // bordered = np.logical_not(bordered).astype(np.uint8)*255
+    # // debug_show_image(bordered, ColorMode.GRAYSCALE)
+    # // n_components, components = cv.connectedComponents(bordered, connectivity=4)
+
+    # // hue = np.uint8(180 * components / n_components)
+    # // full255 = np.full_like(hue, 255, np.uint8)
+    # // dbg_img = cv.merge([hue, full255, full255])
+    # // dbg_img[hue==0] = (0, 0, 0)
+    # // debug_show_image(dbg_img, ColorMode.HSV)
+    # // save_image('connected.png', dbg_img, ColorMode.HSV)
 
     raise NotImplementedError
 
@@ -417,8 +447,8 @@ def _arg_parser() -> ArgumentParser:
 
 
 # debug function
-def debug_show_image(image: Img, colormode: ColorMode) -> None:
-    cv.imshow('image', cvt_to_bgr(image, colormode)); cv.waitKey(0); cv.destroyWindow('image')
+def debug_show_image(image: Img, color_mode: ColorMode) -> None:
+    cv.imshow('image', cvt_to_bgr(image, color_mode)); cv.waitKey(0); cv.destroyWindow('image')
 
 
 def main() -> None:
@@ -437,7 +467,8 @@ def main() -> None:
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode) # debug
 
-        mask_good_components(colored_image, colors, args.min_cell_size, args.max_cells)
+        good_mask = mask_good_components(colored_image, colors, color_mode,
+                                         args.min_cell_size, args.max_cells)
 
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
