@@ -220,7 +220,7 @@ def fill_unmasked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode)
     """
 
     if color_mode == ColorMode.GRAYSCALE:
-        inverse_color_masks = [image != color for color in colors]
+        inverse_color_masks = [(image != color).astype(np.uint8) for color in colors]
     else:
         inverse_color_masks = [np.any(image != color, axis=-1).astype(np.uint8)
                                for color in colors]
@@ -233,6 +233,7 @@ def fill_unmasked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode)
     # closest color = color with the smallest color distance for each pixel
     closest_colors = colors[np.argmin(color_distances, axis=0)]
     result = image.copy()
+    closest_colors = closest_colors.reshape(image.shape)
     result[inverse_mask] = closest_colors[inverse_mask]
     # debug_show_image(result, color_mode) # debug
     return result
@@ -351,7 +352,7 @@ def add_palette(image: Img, colors: Colors) -> Img:
 
         Args:
             image (Img): The image to add the color palette to, in BGR.
-            colors (Colors): The colors in the image.
+            colors (Colors): The colors in the image, in BGR.
 
         Returns:
             Img: The image with the color palette added to the bottom.
@@ -368,14 +369,18 @@ def add_palette(image: Img, colors: Colors) -> Img:
     height = int(radius * 2 * (1 + REL_MARGIN_TOP_BOTTOM))
     left = int(image.shape[1] * REL_PADDING_LEFT_RIGHT)
     middle_y = image.shape[0] + height // 2
+
     new_img = np.ones((image.shape[0] + height, *image.shape[1:]), dtype=np.uint8) * 255
+    new_img[:image.shape[0]] = image
+
     for i in range(len(colors)):
         x = left + int((i + 0.5) * width_per_color)
-        print(tuple(colors[i]))
         cv.circle(new_img, (x, middle_y), radius, tuple(colors[i].tolist()), -1)
         num_offset = int(NUM_SIZE * 10)
+        is_bg_light = np.mean(colors[i]) > 128
+        text_color = (0, 0, 0) if is_bg_light else (255, 255, 255)
         cv.putText(new_img, str(i + 1), (x - num_offset * len(str(i + 1)), middle_y + num_offset),
-                   cv.FONT_HERSHEY_SIMPLEX, NUM_SIZE, (0, 0, 0), 2)
+                   cv.FONT_HERSHEY_SIMPLEX, NUM_SIZE, text_color, 2)
 
     return new_img
 
@@ -529,7 +534,7 @@ def _arg_parser() -> ArgumentParser:
     parser.add_argument('-n', '--numbers',
                         action="store_true",
                         required=False, default=False,
-                        help='Have numbers in the output image. This feature is currently broken'
+                        help='Have numbers in the output image. This feature is currently broken!'
     )
     parser.add_argument('-s', '--seed',
                         type=int, required=False,
@@ -584,16 +589,14 @@ def main() -> None:
         if args.numbers:
             print('WARNING: The number placement algorithm is broken in this version and using --numbers is not recommended, the output will probably be incorrect')
             put_numbers(colored_image, bgr_image, colors, color_mode)
-        print(colors)
         colors_array = np.asarray(colors, dtype=np.uint8)
         if color_mode == ColorMode.GRAYSCALE:
             colors_array = colors_array.reshape(1, -1)
         else:
             colors_array = colors_array.reshape(1, -1, 3)
         colors_bgr = cvt_to_bgr(colors_array, color_mode)
-        print(colors_bgr[0])
         bgr_image = add_palette(bgr_image, colors_bgr[0].copy())
-        debug_show_image(bgr_image, ColorMode.BGR)
+        # debug_show_image(bgr_image, ColorMode.BGR)
         save_image(args.output, bgr_image, ColorMode.BGR)
 
 

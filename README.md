@@ -39,8 +39,8 @@ It is then ready to be run with Python.
 ## Usage
 
 ```none
-usage: pbn-gen.py [-h] -o OUTPUT [-r WIDTH HEIGHT] [-c {BGR,HSL,HSV,LAB,GRAYSCALE}] [-k COLOR_PALETTE_SIZE] [-m MIN_CELL_SIZE] [-M MAX_CELLS] [-O]
-                  [-f] [-n] [-s SEED]
+usage: pbn-gen.py [-h] -o OUTPUT [-r WIDTH HEIGHT] [-c {BGR,HSL,HSV,LAB,GRAYSCALE}] [-k COLOR_PALETTE_SIZE] [-m MIN_CELL_SIZE]
+                  [-M MAX_CELLS] [-O] [-f] [-n] [-s SEED]
                   input [input ...]
 
 positional arguments:
@@ -57,10 +57,24 @@ options:
   -k COLOR_PALETTE_SIZE, --color-palette-size COLOR_PALETTE_SIZE
                         Number of colors used in the output. Defaults to 10.
   -m MIN_CELL_SIZE, --min-cell-size MIN_CELL_SIZE
-                        Minimum size of a cell in the output image in pixels Defaults to 200. If set to 0, all cells are naturally kept.
+                        Minimum size of a cell in the output image in pixels Defaults to 200. If set to 0, all cells are naturally    
+                        kept.
   -M MAX_CELLS, --max-cells MAX_CELLS
-                        Maximum number of cells in the output image. Defaults to 250. If set to 0 or a negative number, no limit is imposed.
+                        Maximum number of cells in the output image. Defaults to 250. If set to 0 or a negative number, no limit is   
+                        imposed.
   -O, --no-outline      Do not have outlines in the output image.
   -f, --fill            Fill the output image with the colors.
-  -n, --numbers         Have numbers in the output image. This feature is currently broken
-  -s SEED, --seed SEED  Seed for the color clustering algorithm. If not provided, a random seed is used.```
+  -n, --numbers         Have numbers in the output image. This feature is currently broken!
+  -s SEED, --seed SEED  Seed for the color clustering algorithm. If not provided, a random seed is used.
+```
+
+## Examples
+
+Input image:
+![Input image](images/input.jpg)
+
+Output image with outlines and color fill:
+![Output image with fill](images/output_filled.png)
+
+Output image with just outlines:
+![Output image](images/output.png)

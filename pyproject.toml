@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "paintbynumber generator"
+version = "0.1.0"
+description = "Python CLI script to generate Paint by Numbers images (prefilled or just outlines) from provided images"
+authors = ["Jakub Prítrský <jakub.prit@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.9"
+numpy = ">=1.19.3"
+opencv-python = ">=4.5.2.52"
+scikit-learn = ">=1.2.0"
+ 
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
