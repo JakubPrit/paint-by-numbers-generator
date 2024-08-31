@@ -266,15 +266,13 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
         # Find the contours of the connected components in the mask
         contours, depths, children, hierarchy = get_connected_components(mask)
 
-        # Separate the outer and inner contours (inner contours are contours of holes)
+        # Get only the outer contours
         outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
 
         # Compute the distances of each masked pixel to the nearest non-masked pixel
-        inverse_mask = np.logical_not(mask).astype(np.uint8)
-        # get precise distances
         distances = cv.distanceTransform(mask.astype(np.uint8), cv.DIST_L2, cv.DIST_MASK_PRECISE)
 
-        max_distance = np.max(distances)
+        # max_distance = np.max(distances)
         # debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
         # debug_show_image(distances / max_distance, ColorMode.GRAYSCALE) # debug
 
@@ -332,13 +330,13 @@ def put_numbers(image: Img, bgr_image: Img, colors: Colors, color_mode: ColorMod
     """ Put numbers (labels) on the components (cells) of an image.
 
         Args:
-            image (Img): The image place the numbers for.
+            image (Img): The image to place the numbers for.
             bgr_image (Img): The image to put the numbers on, in BGR.
             colors (Colors): The colors of the components in thr image.
             color_mode (ColorMode): The color mode of the image.
     """
 
-    circles = largest_inscribed_circles(image, colors, ColorMode.BGR)
+    circles = largest_inscribed_circles(image, colors, color_mode)
     print(len(circles)) # debug
     for (x, y), r, i in circles:
         # print(x, y, r, i) # debug
@@ -538,10 +536,16 @@ def main() -> None:
 
         contours = get_contours(colored_image)
 
-        bgr_image = cvt_to_bgr(colored_image, color_mode)
+        if args.fill:
+            bgr_image = cvt_to_bgr(colored_image, color_mode)
+        else:
+            bgr_image = np.ones_like(cvt_to_bgr(colored_image, color_mode), dtype=np.uint8) \
+                * np.uint8(255)
         if args.outline:
             put_outlines(bgr_image, contours)
-        put_numbers(colored_image, bgr_image, colors, color_mode)
+        if args.numbers:
+            put_numbers(colored_image, bgr_image, colors, color_mode)
+        debug_show_image(bgr_image, ColorMode.BGR)
         save_image(args.output, bgr_image, ColorMode.BGR)
 
 
