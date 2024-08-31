@@ -186,7 +186,7 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
         all_good_contours_idx[i_mask].append(i)
     del good_contours # just to be sure that I don't use it by mistake
 
-    print(sum(len(contours) for contours in all_good_contours_idx)) # debug
+    # print(sum(len(contours) for contours in all_good_contours_idx)) # debug
 
     # Create a mask of the kept components
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
@@ -200,9 +200,9 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
         kept_mask |= kept_mask_this_color
         del kept_mask_this_color, kept_contours # just to be sure that I don't use them by mistake
 
-    dbg_img = image.copy() # debug
-    dbg_img[np.logical_not(kept_mask.astype(bool))] = 0 # debug
-    debug_show_image(dbg_img, color_mode) # debug
+    # dbg_img = image.copy() # debug
+    # dbg_img[np.logical_not(kept_mask.astype(bool))] = 0 # debug
+    # debug_show_image(dbg_img, color_mode) # debug
 
     return kept_mask.astype(bool)
 
@@ -252,6 +252,8 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
             List[InscribedCircle]: The largest inscribed circles in the components,
                 in the format (center, radius, color index).
     """
+
+    # BROKEN
 
     inscribed_circles = []
     for i_color in range(len(colors)):
@@ -337,12 +339,12 @@ def put_numbers(image: Img, bgr_image: Img, colors: Colors, color_mode: ColorMod
     """
 
     circles = largest_inscribed_circles(image, colors, color_mode)
-    print(len(circles)) # debug
+    # print(len(circles)) # debug
     for (x, y), r, i in circles:
         # print(x, y, r, i) # debug
-        cv.circle(bgr_image, (x, y), int(r), (0, 0, 0), -1)
-        # cv.putText(bgr_image, str(i), (x, y), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1)
-    debug_show_image(bgr_image, ColorMode.BGR) # debug
+        # cv.circle(bgr_image, (x, y), int(r), (0, 0, 0), -1)
+        cv.putText(bgr_image, str(i), (x, y), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1)
+    # debug_show_image(bgr_image, ColorMode.BGR) # debug
 
 
 ###################################################################
@@ -481,10 +483,10 @@ def _arg_parser() -> ArgumentParser:
                         help='Maximum number of cells in the output image. Defaults to 250. \
                         If set to 0 or a negative number, no limit is imposed.'
     )
-    parser.add_argument('-l', '--outline',
+    parser.add_argument('-O', '--no-outline',
                         action="store_true",
                         required=False, default=False,
-                        help='Have outlines in the output image.'
+                        help='Do not have outlines in the output image.'
     )
     parser.add_argument('-f', '--fill',
                         action="store_true",
@@ -494,7 +496,7 @@ def _arg_parser() -> ArgumentParser:
     parser.add_argument('-n', '--numbers',
                         action="store_true",
                         required=False, default=False,
-                        help='Have numbers in the output image.'
+                        help='Have numbers in the output image. This feature is currently broken'
     )
     parser.add_argument('-s', '--seed',
                         type=int, required=False,
@@ -524,14 +526,17 @@ def main() -> None:
 
         image = load_image(path, color_mode, args.resize)
         image = blur_image(image)
-        debug_show_image(image, color_mode) # debug
+        # debug_show_image(image, color_mode) # debug
 
         colors, labels = cluster(image, args.color_palette_size, seed)
         colored_image = get_smooth_image(image.shape, colors, labels)
-        debug_show_image(colored_image, color_mode) # debug
+        # debug_show_image(colored_image, color_mode) # debug
 
         good_mask = mask_good_components(colored_image, colors, color_mode,
                                          args.min_cell_size, args.max_cells)
+
+        # TODO: also mask out components with too small largest inscribed circles
+
         colored_image = fill_unmasked(colored_image, good_mask, colors, color_mode)
 
         contours = get_contours(colored_image)
@@ -541,9 +546,10 @@ def main() -> None:
         else:
             bgr_image = np.ones_like(cvt_to_bgr(colored_image, color_mode), dtype=np.uint8) \
                 * np.uint8(255)
-        if args.outline:
+        if not args.no_outline:
             put_outlines(bgr_image, contours)
         if args.numbers:
+            print('WARNING: The number placement algorithm is broken in this version and using --numbers is not recommended, the output will probably be incorrect')
             put_numbers(colored_image, bgr_image, colors, color_mode)
         debug_show_image(bgr_image, ColorMode.BGR)
         save_image(args.output, bgr_image, ColorMode.BGR)
