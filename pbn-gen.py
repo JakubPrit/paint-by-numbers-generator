@@ -89,10 +89,11 @@ def blur_image(image: Img) -> Img:
     return cv.bilateralFilter(image, 7, 150, 50)
 
 
-def remove_small_components(image: Img, colors: Colors,
-                            min_size: int, max_components: int) -> Img:
-    """ Remove small connected components from an image. By connected components,
-        connected regions of the same color are meant.
+def mask_good_components(image: Img, colors: Colors,
+                            min_size: int, max_components: int) -> Mask:
+    """ Mask out small connected components from an image. By connected components,
+        connected regions of the same color are meant. Also removes thin border components
+        (components that are almost completely filled by other components).
 
         Args:
             image (Img): The image to remove small components from.
@@ -101,22 +102,24 @@ def remove_small_components(image: Img, colors: Colors,
             max_components (int): The maximum number of connected components to keep.
 
         Returns:
-            Img: The image with small connected components removed.
+            Mask: The mask of the kept connected components.
     """
 
+    # Convert the image to a list of masks, one for each color
     masks = [np.all(image == color, axis=-1) for color in colors]
+
     good_contours = []
-    all_contours, all_depths, all_areas = [], [], []
-    max_size = image.shape[0] * image.shape[1] # debug
-    dbg_img = cvt_from_bgr(cvt_to_bgr(image, ColorMode.LAB), ColorMode.HSV) # debug
+    all_contours, all_depths, all_children, all_areas = [], [], [], []
 
     for i_mask in range(len(masks)):
         mask = masks[i_mask]
 
+        # Find the contours of the connected components in the mask
         contours, hierarchy = cv.findContours(mask.astype(np.uint8), cv.RETR_TREE,
                                               cv.CHAIN_APPROX_SIMPLE)
         hierarchy = hierarchy[0]
 
+        # Find the children and depths of the contours
         children: tp.List[tp.List[int]] = [[] for _ in range(len(contours))]
         for i in range(len(contours)):
             if hierarchy[i][3] >= 0:
@@ -129,29 +132,32 @@ def remove_small_components(image: Img, colors: Colors,
                 depths[j] = depths[i] + 1
                 stack.append(j)
 
+        # Separate the outer and inner contours (inner contours are contours of holes)
         outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
         inner_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 1]
 
-        areas = list(map(cv.contourArea, contours))
+        # Compute the areas of the components
+        contour_areas = list(map(cv.contourArea, contours))
+        component_areas = contour_areas.copy()
         for i in inner_contours_idx:
-            areas[hierarchy[i][3]] -= areas[i]
+            component_areas[hierarchy[i][3]] -= component_areas[i]
 
-        good_contours.extend([(i_mask, i) for i in outer_contours_idx if areas[i] >= min_size])
+        # Keep the outer components with an area greater than the minimum size and are not thin
+        THIN_THRESHOLD = 0.0
+        good_contours.extend([(i_mask, i) for i in outer_contours_idx
+                              if component_areas[i] >= min_size
+                              and component_areas[i] >= THIN_THRESHOLD * contour_areas[i]])
 
         all_contours.append(contours)
-        # all_hierarchies.append(hierarchy)
         all_depths.append(depths)
-        all_areas.append(areas)
+        all_children.append(children)
+        all_areas.append(component_areas)
+        del mask, contours, hierarchy, children, depths, outer_contours_idx, inner_contours_idx, \
+            contour_areas, component_areas # just to be sure that I don't use them by mistake
 
-        for i in outer_contours_idx: # debug
-            contour, area = contours[i], areas[i] # debug
-            hue = int(np.log(area + 1) / np.log(max_size + 1) * 180) # debug
-            cv.drawContours(dbg_img, [contour], -1, (hue, 255, 255), 1) # debug
-        # // debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+    print(len(good_contours), min_size, max_components) # debug
 
-    debug_show_image(dbg_img, ColorMode.HSV) # debug
-    print(len(good_contours)) # debug
-
+    # Remove the smallest components if there are too many components
     good_contours.sort(key=lambda x: all_areas[x[0]][x[1]], reverse=True)
     if max_components > 0 and len(good_contours) > max_components:
         good_contours = good_contours[:max_components]
@@ -159,24 +165,24 @@ def remove_small_components(image: Img, colors: Colors,
     all_good_contours_idx: tp.List[tp.List[int]] = [list() for _ in range(len(masks))]
     for i_mask, i in good_contours:
         all_good_contours_idx[i_mask].append(i)
+    del good_contours # just to be sure that I don't use it by mistake
 
+    # Create a mask of the kept components
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
     for i_mask in range(len(masks)):
         kept_contours = sorted(all_good_contours_idx[i_mask], key=lambda x: all_depths[i_mask][x])
         for i in kept_contours:
-            cv.drawContours(kept_mask, all_contours[i_mask][i], 0, 1, -1)
-            # todo fill children with zeros
+            cv.drawContours(kept_mask, [all_contours[i_mask][i]], 0, 1, -1)
+            for j in all_children[i_mask][i]:
+                cv.drawContours(kept_mask, [all_contours[i_mask][j]], 0, 0, -1)
 
-    # BROKEN KEPT MASK - todo fix
+    # BROKEN some parts are still removed even if min_size is 0 and max_components is not enforced
 
-    # // kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    # dbg_contours = list(map(lambda x: all_contours[x[0]][x[1]], good_contours)) # debug
-    # cv.drawContours(kept_mask, dbg_contours, -1, 1, -1)
-    dbg_img = image.copy()
-    dbg_img[np.logical_not(kept_mask.astype(bool))] = 0
+    dbg_img = image.copy() # debug
+    dbg_img[np.logical_not(kept_mask.astype(bool))] = 0 # debug
     debug_show_image(dbg_img, ColorMode.LAB) # debug
 
-    raise NotImplementedError
+    return kept_mask.astype(bool)
 
 
 ###################################################################
@@ -376,14 +382,14 @@ def _arg_parser() -> ArgumentParser:
     )
     parser.add_argument('-m', '--min-cell-size',
                         type=int, required=False,
-                        default=400,
+                        default=200,
                         help='Minimum size of a cell in the output image in pixels \
-                        Defaults to 400. If set to 0, all cells are naturally kept.'
+                        Defaults to 200. If set to 0, all cells are naturally kept.'
     )
     parser.add_argument('-M', '--max-cells',
                         type=int, required=False,
-                        default=200,
-                        help='Maximum number of cells in the output image. Defaults to 200. \
+                        default=250,
+                        help='Maximum number of cells in the output image. Defaults to 250. \
                         If set to 0 or a negative number, no limit is imposed.'
     )
     parser.add_argument('-l', '--outline',
@@ -431,7 +437,7 @@ def main() -> None:
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode) # debug
 
-        remove_small_components(colored_image, colors, args.min_cell_size, args.max_cells)
+        mask_good_components(colored_image, colors, args.min_cell_size, args.max_cells)
 
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
