@@ -106,45 +106,72 @@ def remove_small_components(image: Img, colors: Colors,
 
     masks = [np.all(image == color, axis=-1) for color in colors]
     good_contours = []
+    all_contours, all_depths, all_areas = [], [], []
     max_size = image.shape[0] * image.shape[1] # debug
     dbg_img = cvt_from_bgr(cvt_to_bgr(image, ColorMode.LAB), ColorMode.HSV) # debug
-    for mask in masks:
+
+    for i_mask in range(len(masks)):
+        mask = masks[i_mask]
+
         contours, hierarchy = cv.findContours(mask.astype(np.uint8), cv.RETR_TREE,
                                               cv.CHAIN_APPROX_SIMPLE)
         hierarchy = hierarchy[0]
-        root_contours_idx = [i for i in range(len(contours)) if hierarchy[i][3] < 0]
+
         children: tp.List[tp.List[int]] = [[] for _ in range(len(contours))]
         for i in range(len(contours)):
             if hierarchy[i][3] >= 0:
                 children[hierarchy[i][3]].append(i)
         depths = [0] * len(contours)
-        stack = root_contours_idx.copy()
+        stack = [i for i in range(len(contours)) if hierarchy[i][3] < 0]
         while stack:
             i = stack.pop()
             for j in children[i]:
                 depths[j] = depths[i] + 1
                 stack.append(j)
+
         outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
         inner_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 1]
 
         areas = list(map(cv.contourArea, contours))
         for i in inner_contours_idx:
             areas[hierarchy[i][3]] -= areas[i]
-        good_contours.extend(outer_contours_idx)
+
+        good_contours.extend([(i_mask, i) for i in outer_contours_idx if areas[i] >= min_size])
+
+        all_contours.append(contours)
+        # all_hierarchies.append(hierarchy)
+        all_depths.append(depths)
+        all_areas.append(areas)
+
         for i in outer_contours_idx: # debug
             contour, area = contours[i], areas[i] # debug
             hue = int(np.log(area + 1) / np.log(max_size + 1) * 180) # debug
             cv.drawContours(dbg_img, [contour], -1, (hue, 255, 255), 1) # debug
-        debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+        # // debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+
     debug_show_image(dbg_img, ColorMode.HSV) # debug
     print(len(good_contours)) # debug
-    good_contours.sort(key=lambda i: areas[i], reverse=True)
-    if len(good_contours) > max_components:
+
+    good_contours.sort(key=lambda x: all_areas[x[0]][x[1]], reverse=True)
+    if max_components > 0 and len(good_contours) > max_components:
         good_contours = good_contours[:max_components]
 
+    all_good_contours_idx: tp.List[tp.List[int]] = [list() for _ in range(len(masks))]
+    for i_mask, i in good_contours:
+        all_good_contours_idx[i_mask].append(i)
+
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    dbg_contours = list(map(lambda i: contours[i], good_contours)) # debug
-    cv.drawContours(kept_mask, dbg_contours, -1, 1, -1)
+    for i_mask in range(len(masks)):
+        kept_contours = sorted(all_good_contours_idx[i_mask], key=lambda x: all_depths[i_mask][x])
+        for i in kept_contours:
+            cv.drawContours(kept_mask, all_contours[i_mask][i], 0, 1, -1)
+            # todo fill children with zeros
+
+    # BROKEN KEPT MASK - todo fix
+
+    # // kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    # dbg_contours = list(map(lambda x: all_contours[x[0]][x[1]], good_contours)) # debug
+    # cv.drawContours(kept_mask, dbg_contours, -1, 1, -1)
     dbg_img = image.copy()
     dbg_img[np.logical_not(kept_mask.astype(bool))] = 0
     debug_show_image(dbg_img, ColorMode.LAB) # debug
@@ -351,7 +378,13 @@ def _arg_parser() -> ArgumentParser:
                         type=int, required=False,
                         default=400,
                         help='Minimum size of a cell in the output image in pixels \
-                        Defaults to 400.'
+                        Defaults to 400. If set to 0, all cells are naturally kept.'
+    )
+    parser.add_argument('-M', '--max-cells',
+                        type=int, required=False,
+                        default=200,
+                        help='Maximum number of cells in the output image. Defaults to 200. \
+                        If set to 0 or a negative number, no limit is imposed.'
     )
     parser.add_argument('-l', '--outline',
                         action="store_true",
@@ -384,19 +417,26 @@ def debug_show_image(image: Img, colormode: ColorMode) -> None:
 
 def main() -> None:
     args = _arg_parser().parse_args()
+
+    color_mode = ColorMode[args.color_mode]
+
     for path in args.input:
-        color_mode = ColorMode[args.color_mode]
+        seed = args.seed if args.seed is not None else randint(0, 1000)
+
         image = load_image(path, color_mode, args.resize)
         image = blur_image(image)
-        debug_show_image(image, color_mode)
-        seed = args.seed if args.seed is not None else randint(0, 1000)
+        debug_show_image(image, color_mode) # debug
+
         colors, labels = cluster(image, args.color_palette_size, seed)
         colored_image = get_smooth_image(image.shape, colors, labels)
-        debug_show_image(colored_image, color_mode)
-        remove_small_components(colored_image, colors, 1000, 100)
+        debug_show_image(colored_image, color_mode) # debug
+
+        remove_small_components(colored_image, colors, args.min_cell_size, args.max_cells)
+
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
         # numbers = get_numbers(outlines)
+
         bgr_image = cvt_to_bgr(colored_image, color_mode)
         if args.outline:
             bgr_image[outlines] = OUTLINE_COLOR
