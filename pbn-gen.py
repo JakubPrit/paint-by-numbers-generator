@@ -105,29 +105,46 @@ def remove_small_components(image: Img, colors: Colors,
     """
 
     masks = [np.all(image == color, axis=-1) for color in colors]
-    all_contours = []
+    good_contours = []
     max_size = image.shape[0] * image.shape[1] # debug
     dbg_img = cvt_from_bgr(cvt_to_bgr(image, ColorMode.LAB), ColorMode.HSV) # debug
     for mask in masks:
-        contours, _ = cv.findContours(mask.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+        contours, hierarchy = cv.findContours(mask.astype(np.uint8), cv.RETR_TREE,
+                                              cv.CHAIN_APPROX_SIMPLE)
+        hierarchy = hierarchy[0]
+        root_contours_idx = [i for i in range(len(contours)) if hierarchy[i][3] < 0]
+        children: tp.List[tp.List[int]] = [[] for _ in range(len(contours))]
+        for i in range(len(contours)):
+            if hierarchy[i][3] >= 0:
+                children[hierarchy[i][3]].append(i)
+        depths = [0] * len(contours)
+        stack = root_contours_idx.copy()
+        while stack:
+            i = stack.pop()
+            for j in children[i]:
+                depths[j] = depths[i] + 1
+                stack.append(j)
+        outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
+        inner_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 1]
+
         areas = list(map(cv.contourArea, contours))
-        all_contours.extend([(areas[i], contours[i]) for i in range(len(contours))])
-        for contour, area in zip(contours, areas): # debug
-            # hue = int(179 * np.random.rand()) # debug
-            # hue = int(180 * area / max_size * 5) # debug
-            hue = int(np.log(area + 1) / np.log(max_size + 1) * 180)
+        for i in inner_contours_idx:
+            areas[hierarchy[i][3]] -= areas[i]
+        good_contours.extend(outer_contours_idx)
+        for i in outer_contours_idx: # debug
+            contour, area = contours[i], areas[i] # debug
+            hue = int(np.log(area + 1) / np.log(max_size + 1) * 180) # debug
             cv.drawContours(dbg_img, [contour], -1, (hue, 255, 255), 1) # debug
         debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
     debug_show_image(dbg_img, ColorMode.HSV) # debug
-    print(len(all_contours)) # debug
-    all_contours.sort(key=lambda x: x[0], reverse=True)
-    if len(all_contours) > max_components:
-        all_contours = all_contours[:max_components]
+    print(len(good_contours)) # debug
+    good_contours.sort(key=lambda i: areas[i], reverse=True)
+    if len(good_contours) > max_components:
+        good_contours = good_contours[:max_components]
 
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    dbg_contours = list(map(lambda x: x[1], all_contours)) # debug
+    dbg_contours = list(map(lambda i: contours[i], good_contours)) # debug
     cv.drawContours(kept_mask, dbg_contours, -1, 1, -1)
-    # debug_show_image((removed_mask*255).astype(np.uint8), ColorMode.GRAYSCALE) # debug
     dbg_img = image.copy()
     dbg_img[np.logical_not(kept_mask.astype(bool))] = 0
     debug_show_image(dbg_img, ColorMode.LAB) # debug
@@ -309,6 +326,10 @@ def _arg_parser() -> ArgumentParser:
                         type=str, nargs='+',
                         help='Paths of input images.'
     )
+    parser.add_argument('-o', '--output',
+                        type=str, required=True,
+                        help='Path of output image.'
+    )
     parser.add_argument('-r', '--resize',
                         type=int, nargs=2, required=False, default=None,
                         metavar=('WIDTH', 'HEIGHT'),
@@ -321,14 +342,16 @@ def _arg_parser() -> ArgumentParser:
                         choices=[mode.value for mode in ColorMode],
                         help='Color mode of the input image. Defaults to LAB.'
     )
-    parser.add_argument('-o', '--output',
-                        type=str, required=True,
-                        help='Path of output image.'
-    )
     parser.add_argument('-k', '--color-palette-size',
                         type=int, required=False,
                         default=10,
                         help='Number of colors used in the output. Defaults to 10.'
+    )
+    parser.add_argument('-m', '--min-cell-size',
+                        type=int, required=False,
+                        default=400,
+                        help='Minimum size of a cell in the output image in pixels \
+                        Defaults to 400.'
     )
     parser.add_argument('-l', '--outline',
                         action="store_true",
