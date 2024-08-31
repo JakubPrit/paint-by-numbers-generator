@@ -18,6 +18,7 @@ Color = tp.Tuple[int, int, int]
 Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
 Contours = tp.List[np.ndarray]
+InscribedCircle = tp.Tuple[tp.Tuple[int, int], float]
 class ColorMode(Enum):
     BGR = 'BGR'
     HSL = 'HSL'
@@ -238,7 +239,8 @@ def fill_unmasked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode)
     return result
 
 
-def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode) -> Img:
+def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
+                              ) -> tp.List[InscribedCircle]:
     """ Get the largest inscribed circles in the connected components of an image.
 
         Args:
@@ -250,9 +252,40 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode)
             Img: The image with the largest inscribed circles.
     """
 
-    # TODO
+    for color in colors:
+        # Create a mask of this color in the image
+        if color_mode == ColorMode.GRAYSCALE:
+            mask = image == color
+        else:
+            mask = np.all(image == color, axis=-1)
 
-    raise NotImplementedError
+        # Find the contours of the connected components in the mask
+        contours, depths, children, hierarchy = get_connected_components(mask)
+
+        # Separate the outer and inner contours (inner contours are contours of holes)
+        outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
+        inner_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 1]
+
+        # Compute the distances of each masked pixel to the nearest non-masked pixel
+        inverse_mask = np.logical_not(mask)
+        distances = cv.distanceTransform(inverse_mask, cv.DIST_L2, 3)
+
+        inscribed_circles = []
+        for i in outer_contours_idx:
+            # Get the mask of this component
+            component_mask = np.zeros_like(mask, dtype=np.uint8)
+            cv.drawContours(component_mask, contours, i, 1, -1)
+            for j in children[i]:
+                cv.drawContours(component_mask, contours, j, 0, -1)
+
+            # Get the pixel with the largest distance to a non-masked pixel within this component
+            pixel = np.unravel_index(np.argmax(distances * component_mask), distances.shape)
+            # Also get the corresponding distance
+            distance = distances[pixel]
+
+            inscribed_circles.append((pixel, distance))
+
+    return inscribed_circles # type: ignore
 
 
 ###################################################################
@@ -300,30 +333,18 @@ def get_outlines_mask(contours: Contours, shape: Shape) -> Mask:
     return mask.astype(bool)
 
 
-def get_numbers(mask: Mask) -> Mask:
-    """ Get the numbers (labels) for the outlines of an image.
+def get_numbers(image: Img, colors: Colors, color_mode: ColorMode) -> Mask:
+    """ Get the numbers (labels) for an image.
 
         Args:
-            mask (Mask): The mask of the outlines.
+            image (Img): The image to get the numbers (labels) for.
 
         Returns:
             Mask: The mask with the numbers (labels).
     """
 
-    # TODO
-
-    # // bordered = cv.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv.BORDER_CONSTANT, value=255)
-    # // bordered = cv.dilate(bordered, np.ones((3, 3), np.uint8), iterations=1)
-    # // bordered = np.logical_not(bordered).astype(np.uint8)*255
-    # // debug_show_image(bordered, ColorMode.GRAYSCALE)
-    # // n_components, components = cv.connectedComponents(bordered, connectivity=4)
-
-    # // hue = np.uint8(180 * components / n_components)
-    # // full255 = np.full_like(hue, 255, np.uint8)
-    # // dbg_img = cv.merge([hue, full255, full255])
-    # // dbg_img[hue==0] = (0, 0, 0)
-    # // debug_show_image(dbg_img, ColorMode.HSV)
-    # // save_image('connected.png', dbg_img, ColorMode.HSV)
+    circles = largest_inscribed_circles(image, colors, color_mode)
+    mask = np.zeros(image.shape[:2], dtype=np.uint8)
 
     raise NotImplementedError
 
