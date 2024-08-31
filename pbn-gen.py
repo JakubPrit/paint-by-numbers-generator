@@ -53,8 +53,7 @@ def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
     return colors, labels
 
 
-def get_smooth_image(shape: Shape, colors: Colors, labels: Img,
-                     blur_size: int = 3, blur_iters: int = 3) -> Img:
+def get_smooth_image(shape: Shape, colors: Colors, labels: Img) -> Img:
     """ Get an image where each pixel is colored with the color of its cluster center.
         The image is smoothed using a median filter.
 
@@ -62,17 +61,18 @@ def get_smooth_image(shape: Shape, colors: Colors, labels: Img,
             shape (Shape): The shape of the image.
             colors (Colors): The cluster centers (colors).
             labels (Img): The cluster labels of each pixel.
-            blur_size (int): The size of the neighborhood for smoothing.
-            blur_iters (int): The number of iterations for smoothing.
 
         Returns:
             Img: The image with the pixels colored with the color of their cluster center
                  after smoothing with a median blur filter.
     """
 
+    BLUR_SIZE = 3
+    BLUR_ITERS = 3
+
     img: Img = colors[labels].reshape(shape)
-    for _ in range(blur_iters):
-        img = cv.medianBlur(img, blur_size)
+    for _ in range(BLUR_ITERS):
+        img = cv.medianBlur(img, BLUR_SIZE)
     return img
 
 
@@ -86,7 +86,7 @@ def blur_image(image: Img) -> Img:
             Img: The blurred image.
     """
 
-    return cv.bilateralFilter(image, 5, 200, 50)
+    return cv.bilateralFilter(image, 7, 150, 50)
 
 
 def remove_small_components(image: Img, colors: Colors,
@@ -106,16 +106,31 @@ def remove_small_components(image: Img, colors: Colors,
 
     masks = [np.all(image == color, axis=-1) for color in colors]
     all_contours = []
+    max_size = image.shape[0] * image.shape[1] # debug
+    dbg_img = cvt_from_bgr(cvt_to_bgr(image, ColorMode.LAB), ColorMode.HSV) # debug
     for mask in masks:
         contours, _ = cv.findContours(mask.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-        areas = map(cv.contourArea, contours)
-        all_contours.extend([(area, contour) for contour, area in zip(contours, areas)
-                             if area >= min_size])
+        areas = list(map(cv.contourArea, contours))
+        all_contours.extend([(areas[i], contours[i]) for i in range(len(contours))])
+        for contour, area in zip(contours, areas): # debug
+            # hue = int(179 * np.random.rand()) # debug
+            # hue = int(180 * area / max_size * 5) # debug
+            hue = int(np.log(area + 1) / np.log(max_size + 1) * 180)
+            cv.drawContours(dbg_img, [contour], -1, (hue, 255, 255), 1) # debug
+        debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+    debug_show_image(dbg_img, ColorMode.HSV) # debug
+    print(len(all_contours)) # debug
     all_contours.sort(key=lambda x: x[0], reverse=True)
     if len(all_contours) > max_components:
         all_contours = all_contours[:max_components]
 
-    # todo
+    kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    dbg_contours = list(map(lambda x: x[1], all_contours)) # debug
+    cv.drawContours(kept_mask, dbg_contours, -1, 1, -1)
+    # debug_show_image((removed_mask*255).astype(np.uint8), ColorMode.GRAYSCALE) # debug
+    dbg_img = image.copy()
+    dbg_img[np.logical_not(kept_mask.astype(bool))] = 0
+    debug_show_image(dbg_img, ColorMode.LAB) # debug
 
     raise NotImplementedError
 
@@ -355,6 +370,7 @@ def main() -> None:
         colors, labels = cluster(image, args.color_palette_size, seed)
         colored_image = get_smooth_image(image.shape, colors, labels)
         debug_show_image(colored_image, color_mode)
+        remove_small_components(colored_image, colors, 1000, 100)
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
         # numbers = get_numbers(outlines)
