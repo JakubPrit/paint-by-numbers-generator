@@ -86,7 +86,41 @@ def blur_image(image: Img) -> Img:
             Img: The blurred image.
     """
 
-    return cv.bilateralFilter(image, 7, 150, 50)
+    return cv.bilateralFilter(image, 7, 170, 70)
+
+
+def get_connected_components(mask: Mask
+                             ) -> tp.Tuple[Contours, tp.List[int], tp.List[tp.List[int]], tp.Any]:
+    """ Get the connected components of a binary mask.
+
+        Args:
+            mask (Mask): The binary mask to get the connected components of.
+
+        Returns:
+            tp.List[Contours, tp.List[int], tp.List[tp.List[int]]]: The contours of the connected
+                components, the depths of the contours, and list of children for each contour.
+    """
+
+    # Find the contours of the connected components in the mask
+    contours: Contours
+    contours, hierarchy = cv.findContours(mask.astype(np.uint8), cv.RETR_TREE, # type: ignore
+                                            cv.CHAIN_APPROX_SIMPLE)
+    hierarchy = hierarchy[0]
+
+    # Find the children and depths of the contours
+    children: tp.List[tp.List[int]] = [[] for _ in range(len(contours))]
+    for i in range(len(contours)):
+        if hierarchy[i][3] >= 0:
+            children[hierarchy[i][3]].append(i)
+    depths = [0] * len(contours)
+    stack = [i for i in range(len(contours)) if hierarchy[i][3] < 0]
+    while stack:
+        i = stack.pop()
+        for j in children[i]:
+            depths[j] = depths[i] + 1
+            stack.append(j)
+
+    return contours, depths, children, hierarchy
 
 
 def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
@@ -118,23 +152,7 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
     for i_mask in range(len(masks)):
         mask = masks[i_mask]
 
-        # Find the contours of the connected components in the mask
-        contours, hierarchy = cv.findContours(mask.astype(np.uint8), cv.RETR_TREE,
-                                              cv.CHAIN_APPROX_SIMPLE)
-        hierarchy = hierarchy[0]
-
-        # Find the children and depths of the contours
-        children: tp.List[tp.List[int]] = [[] for _ in range(len(contours))]
-        for i in range(len(contours)):
-            if hierarchy[i][3] >= 0:
-                children[hierarchy[i][3]].append(i)
-        depths = [0] * len(contours)
-        stack = [i for i in range(len(contours)) if hierarchy[i][3] < 0]
-        while stack:
-            i = stack.pop()
-            for j in children[i]:
-                depths[j] = depths[i] + 1
-                stack.append(j)
+        contours, depths, children, hierarchy = get_connected_components(mask)
 
         # Separate the outer and inner contours (inner contours are contours of holes)
         outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
@@ -158,8 +176,6 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
         all_areas.append(component_areas)
         del mask, contours, hierarchy, children, depths, outer_contours_idx, inner_contours_idx, \
             contour_areas, component_areas # just to be sure that I don't use them by mistake
-
-    print(len(good_contours), min_size, max_components) # debug
 
     # Remove the smallest components if there are too many components
     good_contours.sort(key=lambda x: all_areas[x[0]][x[1]], reverse=True)
@@ -190,12 +206,12 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
     return kept_mask.astype(bool)
 
 
-def fill_masked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode) -> Img:
-    """ Fill the masked regions of an image with the colors of the neighboring regions.
+def fill_unmasked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode) -> Img:
+    """ Fill the non-masked regions of an image with the colors of the neighboring regions.
 
         Args:
             image (Img): The image to fill.
-            mask (Mask): The mask of the regions to fill.
+            mask (Mask): The mask of the regions not to fill.
             colors (Colors): The colors of the masked regions.
             color_mode (ColorMode): The color mode of the image.
 
@@ -203,12 +219,38 @@ def fill_masked(image: Img, mask: Mask, colors: Colors, color_mode: ColorMode) -
             Img: The image with the unmasked regions filled.
     """
 
-    color_masks = [image == color for color in colors]
-    inverted_color_masks = [np.logical_not(color_mask) for color_mask in color_masks]
-    color_distances = [cv.distanceTransform(inv_color_mask.astype(np.uint8), cv.DIST_L2, 3)
-                       for inv_color_mask in inverted_color_masks]
+    if color_mode == ColorMode.GRAYSCALE:
+        inverse_color_masks = [image != color for color in colors]
+    else:
+        inverse_color_masks = [np.any(image != color, axis=-1).astype(np.uint8)
+                               for color in colors]
+    inverse_mask = np.logical_not(mask)
+    for i in range(len(inverse_color_masks)):
+        inverse_color_masks[i] |= inverse_mask
+    color_distances = [cv.distanceTransform(inv_color_mask, cv.DIST_L2, 3)
+                       for inv_color_mask in inverse_color_masks]
+
     # closest color = color with the smallest color distance for each pixel
-    closest_colors = np.argmin(color_distances, axis=0)
+    closest_colors = colors[np.argmin(color_distances, axis=0)]
+    result = image.copy()
+    result[inverse_mask] = closest_colors[inverse_mask]
+    debug_show_image(result, color_mode) # debug
+    return result
+
+
+def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode) -> Img:
+    """ Get the largest inscribed circles in the connected components of an image.
+
+        Args:
+            image (Img): The image to get the inscribed circles of.
+            colors (Colors): The colors in the image.
+            color_mode (ColorMode): The color mode of the image.
+
+        Returns:
+            Img: The image with the largest inscribed circles.
+    """
+
+    # TODO
 
     raise NotImplementedError
 
@@ -469,6 +511,7 @@ def main() -> None:
 
         good_mask = mask_good_components(colored_image, colors, color_mode,
                                          args.min_cell_size, args.max_cells)
+        colored_image = fill_unmasked(colored_image, good_mask, colors, color_mode)
 
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
