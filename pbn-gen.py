@@ -53,7 +53,8 @@ def cluster(image: Img, n_colors: int, seed: int = 0) -> tp.Tuple[Colors, Img]:
     return colors, labels
 
 
-def get_smooth_image(shape: Shape, colors: Colors, labels: Img, blur_size: int = 3) -> Img:
+def get_smooth_image(shape: Shape, colors: Colors, labels: Img,
+                     blur_size: int = 3, blur_iters: int = 3) -> Img:
     """ Get an image where each pixel is colored with the color of its cluster center.
         The image is smoothed using a median filter.
 
@@ -62,6 +63,7 @@ def get_smooth_image(shape: Shape, colors: Colors, labels: Img, blur_size: int =
             colors (Colors): The cluster centers (colors).
             labels (Img): The cluster labels of each pixel.
             blur_size (int): The size of the neighborhood for smoothing.
+            blur_iters (int): The number of iterations for smoothing.
 
         Returns:
             Img: The image with the pixels colored with the color of their cluster center
@@ -69,7 +71,9 @@ def get_smooth_image(shape: Shape, colors: Colors, labels: Img, blur_size: int =
     """
 
     img: Img = colors[labels].reshape(shape)
-    return cv.medianBlur(img, blur_size)
+    for _ in range(blur_iters):
+        img = cv.medianBlur(img, blur_size)
+    return img
 
 
 def blur_image(image: Img) -> Img:
@@ -83,6 +87,37 @@ def blur_image(image: Img) -> Img:
     """
 
     return cv.bilateralFilter(image, 5, 200, 50)
+
+
+def remove_small_components(image: Img, colors: Colors,
+                            min_size: int, max_components: int) -> Img:
+    """ Remove small connected components from an image. By connected components,
+        connected regions of the same color are meant.
+
+        Args:
+            image (Img): The image to remove small components from.
+            colors (Colors): The colors in the image.
+            min_size (int): The minimum size of the connected components to keep.
+            max_components (int): The maximum number of connected components to keep.
+
+        Returns:
+            Img: The image with small connected components removed.
+    """
+
+    masks = [np.all(image == color, axis=-1) for color in colors]
+    all_contours = []
+    for mask in masks:
+        contours, _ = cv.findContours(mask.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
+        areas = map(cv.contourArea, contours)
+        all_contours.extend([(area, contour) for contour, area in zip(contours, areas)
+                             if area >= min_size])
+    all_contours.sort(key=lambda x: x[0], reverse=True)
+    if len(all_contours) > max_components:
+        all_contours = all_contours[:max_components]
+
+    # todo
+
+    raise NotImplementedError
 
 
 ###################################################################
@@ -100,6 +135,8 @@ def get_contours(image: Img) -> Contours:
     """
 
     edges = cv.Canny(image, 0, 0)
+    debug_show_image(edges, ColorMode.GRAYSCALE) # debug
+    save_image('edges.png', edges, ColorMode.GRAYSCALE) # debug
     edges = edges.astype(bool)
     contours, _ = cv.findContours(edges.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
     dbg_img = np.zeros_like(edges, dtype=np.uint8) # debug
@@ -320,7 +357,7 @@ def main() -> None:
         debug_show_image(colored_image, color_mode)
         contours = get_contours(colored_image)
         outlines = get_outlines_mask(contours, colored_image.shape)
-        numbers = get_numbers(outlines)
+        # numbers = get_numbers(outlines)
         bgr_image = cvt_to_bgr(colored_image, color_mode)
         if args.outline:
             bgr_image[outlines] = OUTLINE_COLOR

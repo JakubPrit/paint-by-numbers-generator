@@ -16,14 +16,16 @@ This project is a Python script that can convert normal images into Paint by Num
 
 ### Dependencies
 
-- Python 3.9 or higher
-- OpenCV 4.8.1 or higher
-- Numpy 1.25.1 or higher
-- Scikit-learn 1.3.2 or higher
+- **Python** 3.9 *or higher*
+- **OpenCV** 4.5.2.52 *or higher*
+- **Numpy** 1.19.3 *or higher*
+- **Scikit-learn** 1.2.0 *or higher*
 
-Lover versions of the dependencies might work, but they have not been tested.
+**Lower versions of the dependencies might work, but they have not been tested.**
+Also tested with Python 3.10.9, OpenCV 4.8.1, Numpy 1.25.1, Scikit-learn 1.3.2.
 
-To install the dependencies, run the following command:
+To install the dependencies with pip (after installing an appropriate version of Python),
+run the following command:
 
 ```none
 pip install numpy opencv-python scikit-learn
@@ -31,7 +33,7 @@ pip install numpy opencv-python scikit-learn
 
 ### Setup
 
-Just download the pbn-gen.py file and install the dependencies.
+Just download the `pbn-gen.py` file and install the dependencies.
 It is then ready to be run with Python.
 
 ## Usage
