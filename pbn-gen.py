@@ -18,7 +18,7 @@ Color = tp.Tuple[int, int, int]
 Colors = npt.NDArray[np.uint8]
 Shape = tp.Tuple[int, ...]
 Contours = tp.List[np.ndarray]
-InscribedCircle = tp.Tuple[tp.Tuple[int, int], float]
+InscribedCircle = tp.Tuple[tp.Tuple[int, int], float, int]
 class ColorMode(Enum):
     BGR = 'BGR'
     HSL = 'HSL'
@@ -26,8 +26,6 @@ class ColorMode(Enum):
     LAB = 'LAB'
     GRAYSCALE = 'GRAYSCALE'
 
-
-OUTLINE_COLOR = (0, 0, 0)
 
 ###################################################################
 #              COLOR CLUSTERING AND IMAGE PROCESSING              #
@@ -188,6 +186,8 @@ def mask_good_components(image: Img, colors: Colors, color_mode: ColorMode,
         all_good_contours_idx[i_mask].append(i)
     del good_contours # just to be sure that I don't use it by mistake
 
+    print(sum(len(contours) for contours in all_good_contours_idx)) # debug
+
     # Create a mask of the kept components
     kept_mask = np.zeros(image.shape[:2], dtype=np.uint8)
     for i_mask in range(len(masks)):
@@ -249,10 +249,14 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
             color_mode (ColorMode): The color mode of the image.
 
         Returns:
-            Img: The image with the largest inscribed circles.
+            List[InscribedCircle]: The largest inscribed circles in the components,
+                in the format (center, radius, color index).
     """
 
-    for color in colors:
+    inscribed_circles = []
+    for i_color in range(len(colors)):
+        color = colors[i_color]
+
         # Create a mask of this color in the image
         if color_mode == ColorMode.GRAYSCALE:
             mask = image == color
@@ -264,13 +268,16 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
 
         # Separate the outer and inner contours (inner contours are contours of holes)
         outer_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 0]
-        inner_contours_idx = [i for i in range(len(contours)) if depths[i] % 2 == 1]
 
         # Compute the distances of each masked pixel to the nearest non-masked pixel
-        inverse_mask = np.logical_not(mask)
-        distances = cv.distanceTransform(inverse_mask, cv.DIST_L2, 3)
+        inverse_mask = np.logical_not(mask).astype(np.uint8)
+        # get precise distances
+        distances = cv.distanceTransform(mask.astype(np.uint8), cv.DIST_L2, cv.DIST_MASK_PRECISE)
 
-        inscribed_circles = []
+        max_distance = np.max(distances)
+        # debug_show_image(mask.astype(np.uint8)*255, ColorMode.GRAYSCALE) # debug
+        # debug_show_image(distances / max_distance, ColorMode.GRAYSCALE) # debug
+
         for i in outer_contours_idx:
             # Get the mask of this component
             component_mask = np.zeros_like(mask, dtype=np.uint8)
@@ -283,7 +290,7 @@ def largest_inscribed_circles(image: Img, colors: Colors, color_mode: ColorMode
             # Also get the corresponding distance
             distance = distances[pixel]
 
-            inscribed_circles.append((pixel, distance))
+            inscribed_circles.append((pixel, distance, i_color))
 
     return inscribed_circles # type: ignore
 
@@ -303,50 +310,41 @@ def get_contours(image: Img) -> Contours:
     """
 
     edges = cv.Canny(image, 0, 0)
-    debug_show_image(edges, ColorMode.GRAYSCALE) # debug
-    save_image('edges.png', edges, ColorMode.GRAYSCALE) # debug
     edges = edges.astype(bool)
     contours, _ = cv.findContours(edges.astype(np.uint8), cv.RETR_LIST, cv.CHAIN_APPROX_SIMPLE)
-    dbg_img = np.zeros_like(edges, dtype=np.uint8) # debug
-    cv.drawContours(dbg_img, contours, -1, 255, 1) # debug
-    debug_show_image(dbg_img, ColorMode.GRAYSCALE) # debug
-    save_image('contours.png', dbg_img, ColorMode.GRAYSCALE) # debug
-    cv.drawContours(dbg_img, contours, -1, 255, -1) # debug
-    debug_show_image(dbg_img, ColorMode.GRAYSCALE) # debug
-    save_image('contours_fill.png', dbg_img, ColorMode.GRAYSCALE) # debug
     return contours
 
 
-def get_outlines_mask(contours: Contours, shape: Shape) -> Mask:
+def put_outlines(bgr_image: Img, contours: Contours) -> None:
     """ Get a mask of the outlines of an image.
 
         Args:
-            contours (Contours): The contours of the image.
-            shape (Shape): The shape of the image.
-
-        Returns:
-            Mask: The mask of the outlines.
+            bgr_image (Img): The image to get the outlines of and put the outlines on, in BGR.
+            contours (Contours): The contours of the image components.
     """
 
-    mask = np.zeros(shape[:2], dtype=np.uint8)
-    cv.drawContours(mask, contours, -1, 1, 1)
-    return mask.astype(bool)
+    OUTLINE_COLOR = (0, 0, 0)
+
+    cv.drawContours(bgr_image, contours, -1, 1, 1)
 
 
-def get_numbers(image: Img, colors: Colors, color_mode: ColorMode) -> Mask:
-    """ Get the numbers (labels) for an image.
+def put_numbers(image: Img, bgr_image: Img, colors: Colors, color_mode: ColorMode) -> None:
+    """ Put numbers (labels) on the components (cells) of an image.
 
         Args:
-            image (Img): The image to get the numbers (labels) for.
-
-        Returns:
-            Mask: The mask with the numbers (labels).
+            image (Img): The image place the numbers for.
+            bgr_image (Img): The image to put the numbers on, in BGR.
+            colors (Colors): The colors of the components in thr image.
+            color_mode (ColorMode): The color mode of the image.
     """
 
-    circles = largest_inscribed_circles(image, colors, color_mode)
-    mask = np.zeros(image.shape[:2], dtype=np.uint8)
-
-    raise NotImplementedError
+    circles = largest_inscribed_circles(image, colors, ColorMode.BGR)
+    print(len(circles)) # debug
+    for (x, y), r, i in circles:
+        # print(x, y, r, i) # debug
+        cv.circle(bgr_image, (x, y), int(r), (0, 0, 0), -1)
+        # cv.putText(bgr_image, str(i), (x, y), cv.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 1)
+    debug_show_image(bgr_image, ColorMode.BGR) # debug
 
 
 ###################################################################
@@ -511,7 +509,11 @@ def _arg_parser() -> ArgumentParser:
 
 # debug function
 def debug_show_image(image: Img, color_mode: ColorMode) -> None:
-    cv.imshow('image', cvt_to_bgr(image, color_mode)); cv.waitKey(0); cv.destroyWindow('image')
+    if color_mode == ColorMode.GRAYSCALE:
+        cv.imshow('image', image)
+    else:
+        cv.imshow('image', cvt_to_bgr(image, color_mode))
+    cv.waitKey(0); cv.destroyWindow('image')
 
 
 def main() -> None:
@@ -535,12 +537,11 @@ def main() -> None:
         colored_image = fill_unmasked(colored_image, good_mask, colors, color_mode)
 
         contours = get_contours(colored_image)
-        outlines = get_outlines_mask(contours, colored_image.shape)
-        # numbers = get_numbers(outlines)
 
         bgr_image = cvt_to_bgr(colored_image, color_mode)
         if args.outline:
-            bgr_image[outlines] = OUTLINE_COLOR
+            put_outlines(bgr_image, contours)
+        put_numbers(colored_image, bgr_image, colors, color_mode)
         save_image(args.output, bgr_image, ColorMode.BGR)
 
 
